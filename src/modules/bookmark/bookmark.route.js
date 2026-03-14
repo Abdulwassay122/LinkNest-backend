@@ -23,6 +23,10 @@ router.route("/bookmarks")
     .get(verifyAccessToken, getAllBookmarks)
     .post(verifyAccessToken, createBookmark);
 
+// Get favorite bookmarks (must be before /:bookmarkId routes)
+router.route("/bookmarks/favorites")
+    .get(verifyAccessToken, getFavoriteBookmarks);
+
 // Get, update, or delete a specific bookmark
 router.route("/bookmarks/:bookmarkId")
     .get(verifyAccessToken, getBookmark)
@@ -32,10 +36,6 @@ router.route("/bookmarks/:bookmarkId")
 // Toggle favorite status
 router.route("/bookmarks/:bookmarkId/favorite")
     .patch(verifyAccessToken, toggleFavorite);
-
-// Get favorite bookmarks
-router.route("/bookmarks/favorites")
-    .get(verifyAccessToken, getFavoriteBookmarks);
 
 // Add tags to a bookmark
 router.route("/bookmarks/:bookmarkId/tags")

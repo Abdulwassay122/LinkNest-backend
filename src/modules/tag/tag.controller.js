@@ -78,9 +78,6 @@ export const getAllTags = asyncHandler(async (req, res) => {
                             name: true,
                             userId: true,
                         },
-                        where: {
-                            userId: req.user.id,
-                        },
                     },
                 },
             },
@@ -99,12 +96,12 @@ export const getAllTags = asyncHandler(async (req, res) => {
     const userTags = tags
         .map(tag => ({
             ...tag,
-            bookmarks: tag.bookmarks.filter(b => b.bookmark !== null),
+            bookmarks: tag.bookmarks.filter(b => b.bookmark && b.bookmark.userId === req.user.id),
             _count: {
-                bookmarks: tag.bookmarks.filter(b => b.bookmark !== null).length,
+                bookmarks: tag.bookmarks.filter(b => b.bookmark && b.bookmark.userId === req.user.id).length,
             },
         }))
-        .filter(tag => tag._count.bookmarks > 0 || tag.bookmarks.length > 0);
+        .filter(tag => tag._count.bookmarks > 0);
 
     return res
         .status(200)
@@ -131,9 +128,6 @@ export const getTag = asyncHandler(async (req, res) => {
                             isFavorite: true,
                             createdAt: true,
                         },
-                        where: {
-                            userId: req.user.id,
-                        },
                     },
                 },
             },
@@ -151,7 +145,7 @@ export const getTag = asyncHandler(async (req, res) => {
 
     // Filter bookmarks to only include those belonging to the user
     const userBookmarks = tag.bookmarks
-        .filter(b => b.bookmark !== null)
+        .filter(b => b.bookmark && b.bookmark.userId === req.user.id)
         .map(b => b.bookmark);
 
     const response = {
@@ -271,9 +265,6 @@ export const getTagByName = asyncHandler(async (req, res) => {
                             isFavorite: true,
                             createdAt: true,
                         },
-                        where: {
-                            userId: req.user.id,
-                        },
                     },
                 },
             },
@@ -291,7 +282,7 @@ export const getTagByName = asyncHandler(async (req, res) => {
 
     // Filter bookmarks to only include those belonging to the user
     const userBookmarks = tag.bookmarks
-        .filter(b => b.bookmark !== null)
+        .filter(b => b.bookmark && b.bookmark.userId === req.user.id)
         .map(b => b.bookmark);
 
     const response = {
