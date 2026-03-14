@@ -28,17 +28,17 @@ app.use(passport.initialize());
 // =====================
 import authRouter from "./modules/auth/auth.route.js";
 import userRouter from "./modules/user/user.route.js";
-// import bookmarkRouter from "./modules/bookmark/bookmark.route.js";
-// import collectionRouter from "./modules/collection/collection.route.js";
-// import tagRouter from "./modules/tag/tag.route.js";
-// import searchRouter from "./modules/search/search.route.js";
+import bookmarkRouter from "./modules/bookmark/bookmark.route.js";
+import collectionRouter from "./modules/collection/collection.route.js";
+import tagRouter from "./modules/tag/tag.route.js";
+import searchRouter from "./modules/search/search.route.js";
 
 app.use("/api/v1", authRouter);
 app.use("/api/v1", userRouter);
-// app.use("/api/v1", bookmarkRouter);
-// app.use("/api/v1", collectionRouter);
-// app.use("/api/v1", tagRouter);
-// app.use("/api/v1", searchRouter);
+app.use("/api/v1", bookmarkRouter);
+app.use("/api/v1", collectionRouter);
+app.use("/api/v1", tagRouter);
+app.use("/api/v1", searchRouter);
 
 // =====================
 // Global Error Handler

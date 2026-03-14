@@ -393,3 +393,123 @@ export const getFavoriteBookmarks = asyncHandler(async (req, res) => {
         .status(200)
         .json(new ApiResponse(200, bookmarks, "Favorite bookmarks fetched successfully"));
 });
+
+// =====================
+// Add Tags to Bookmark Controller
+// =====================
+export const addTags = asyncHandler(async (req, res) => {
+    const { bookmarkId } = req.params;
+    const { tags } = req.body;
+
+    // Check if bookmark exists and belongs to user
+    const bookmark = await prisma.bookmark.findFirst({
+        where: {
+            id: parseInt(bookmarkId),
+            userId: req.user.id,
+        },
+    });
+
+    if (!bookmark) {
+        throw new ApiError(404, "Bookmark not found");
+    }
+
+    // Validation
+    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+        throw new ApiError(400, "Tags array is required");
+    }
+
+    // Add tags to bookmark
+    const updatedBookmark = await prisma.bookmark.update({
+        where: { id: parseInt(bookmarkId) },
+        data: {
+            tags: {
+                create: tags.map(tagName => ({
+                    tag: {
+                        connectOrCreate: {
+                            where: { name: tagName.toLowerCase() },
+                            create: { name: tagName.toLowerCase() },
+                        },
+                    },
+                })),
+            },
+        },
+        include: {
+            collection: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
+            tags: {
+                select: {
+                    tag: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, updatedBookmark, "Tags added to bookmark successfully"));
+});
+
+// =====================
+// Remove Tag from Bookmark Controller
+// =====================
+export const removeTag = asyncHandler(async (req, res) => {
+    const { bookmarkId, tagId } = req.params;
+
+    // Check if bookmark exists and belongs to user
+    const bookmark = await prisma.bookmark.findFirst({
+        where: {
+            id: parseInt(bookmarkId),
+            userId: req.user.id,
+        },
+    });
+
+    if (!bookmark) {
+        throw new ApiError(404, "Bookmark not found");
+    }
+
+    // Check if tag exists
+    const tag = await prisma.tag.findUnique({
+        where: { id: parseInt(tagId) },
+    });
+
+    if (!tag) {
+        throw new ApiError(404, "Tag not found");
+    }
+
+    // Check if tag is associated with bookmark
+    const existingAssociation = await prisma.bookmarkTag.findUnique({
+        where: {
+            bookmarkId_tagId: {
+                bookmarkId: parseInt(bookmarkId),
+                tagId: parseInt(tagId),
+            },
+        },
+    });
+
+    if (!existingAssociation) {
+        throw new ApiError(400, "Tag is not associated with this bookmark");
+    }
+
+    // Remove tag from bookmark
+    await prisma.bookmarkTag.delete({
+        where: {
+            bookmarkId_tagId: {
+                bookmarkId: parseInt(bookmarkId),
+                tagId: parseInt(tagId),
+            },
+        },
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, null, "Tag removed from bookmark successfully"));
+});

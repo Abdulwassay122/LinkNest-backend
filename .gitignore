@@ -121,3 +121,5 @@ dist
 .DS_Store
 
 /src/generated/prisma
+
+LinkNest_API.postman_collection.json
