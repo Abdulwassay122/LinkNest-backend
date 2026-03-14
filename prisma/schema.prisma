@@ -1,0 +1,125 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ======================
+// Enums
+// ======================
+
+enum AuthProvider {
+  local
+  google
+  github
+  facebook
+}
+
+enum BookmarkType {
+  link
+  article
+  video
+  github
+  tool
+}
+
+// ======================
+// User Model
+// ======================
+
+model User {
+  id           Int          @id @default(autoincrement())
+  name         String?
+  email        String       @unique
+  password     String?
+  provider     AuthProvider @default(local)
+  providerId   String?
+  profileImage String?
+  role         String       @default("user")
+  refreshToken String?
+  
+  bookmarks    Bookmark[]
+  collections  Collection[]
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+// ======================
+// Collection Model
+// ======================
+
+model Collection {
+  id          Int        @id @default(autoincrement())
+  name        String
+  description String?
+  logo        String?
+
+  userId      Int
+  user        User       @relation(fields: [userId], references: [id])
+
+  bookmarks   Bookmark[]
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+// ======================
+// Bookmark Model
+// ======================
+
+model Bookmark {
+  id           Int           @id @default(autoincrement())
+  name         String
+  description  String?
+  link         String
+  icon         String?
+  type         BookmarkType  @default(link)
+
+  userId       Int
+  user         User          @relation(fields: [userId], references: [id])
+
+  collectionId Int?
+  collection   Collection?   @relation(fields: [collectionId], references: [id])
+
+  isFavorite   Boolean       @default(false)
+  position     Int?
+
+  tags         BookmarkTag[]
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+// ======================
+// Tag Model
+// ======================
+
+model Tag {
+  id        Int           @id @default(autoincrement())
+  name      String        @unique
+
+  bookmarks BookmarkTag[]
+}
+
+// ======================
+// BookmarkTag Model
+// ======================
+
+model BookmarkTag {
+  bookmarkId Int
+  tagId      Int
+
+  bookmark   Bookmark @relation(fields: [bookmarkId], references: [id])
+  tag        Tag      @relation(fields: [tagId], references: [id])
+
+  @@id([bookmarkId, tagId])
+}
