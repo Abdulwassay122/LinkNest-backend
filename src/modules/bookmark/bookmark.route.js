@@ -9,6 +9,7 @@ import {
     getFavoriteBookmarks,
     addTags,
     removeTag,
+    getLinkPreview,
 } from "./bookmark.controller.js";
 import { verifyAccessToken } from "../../middleware/auth.middleware.js";
 
@@ -17,6 +18,9 @@ const router = Router();
 // =====================
 // Bookmark Routes
 // =====================
+
+// Get link preview (must be before /:bookmarkId routes)
+router.get("/bookmarks/preview", verifyAccessToken, getLinkPreview);
 
 // Get all bookmarks or create a new bookmark
 router.route("/bookmarks")

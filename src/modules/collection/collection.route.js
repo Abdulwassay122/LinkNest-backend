@@ -7,6 +7,7 @@ import {
     deleteCollection,
     addBookmarkToCollection,
     removeBookmarkFromCollection,
+    addBookmarksToCollection,
 } from "./collection.controller.js";
 import { verifyAccessToken } from "../../middleware/auth.middleware.js";
 
@@ -26,6 +27,10 @@ router.route("/collections/:collectionId")
     .get(verifyAccessToken, getCollection)
     .patch(verifyAccessToken, updateCollection)
     .delete(verifyAccessToken, deleteCollection);
+
+// Add multiple bookmarks to collection
+router.route("/collections/:collectionId/bookmarks")
+    .post(verifyAccessToken, addBookmarksToCollection);
 
 // Add bookmark to collection
 router.route("/collections/:collectionId/bookmarks/:bookmarkId")

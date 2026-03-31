@@ -338,3 +338,78 @@ export const removeBookmarkFromCollection = asyncHandler(async (req, res) => {
         .status(200)
         .json(new ApiResponse(200, updatedBookmark, "Bookmark removed from collection successfully"));
 });
+"" 
+// =====================
+// Add Multiple Bookmarks to Collection Controller
+// =====================
+export const addBookmarksToCollection = asyncHandler(async (req, res) => {
+    const { collectionId } = req.params;
+    const { bookmarkIds } = req.body;
+
+    // Check if collection exists and belongs to user
+    const collection = await prisma.collection.findFirst({
+        where: {
+            id: parseInt(collectionId),
+            userId: req.user.id,
+        },
+    });
+
+    if (!collection) {
+        throw new ApiError(404, "Collection not found");
+    }
+
+    // Validation
+    if (!bookmarkIds || !Array.isArray(bookmarkIds) || bookmarkIds.length === 0) {
+        throw new ApiError(400, "Bookmark IDs array is required");
+    }
+
+    // Verify all bookmarks belong to the user
+    const bookmarks = await prisma.bookmark.findMany({
+        where: {
+            id: { in: bookmarkIds },
+            userId: req.user.id,
+        },
+    });
+
+    if (bookmarks.length !== bookmarkIds.length) {
+        throw new ApiError(404, "One or more bookmarks not found");
+    }
+
+    // Update all bookmarks to add to collection
+    await prisma.bookmark.updateMany({
+        where: {
+            id: { in: bookmarkIds },
+        },
+        data: {
+            collectionId: parseInt(collectionId),
+        },
+    });
+
+    // Return updated collection
+    const updatedCollection = await prisma.collection.findFirst({
+        where: {
+            id: parseInt(collectionId),
+            userId: req.user.id,
+        },
+        include: {
+            bookmarks: {
+                select: {
+                    id: true,
+                    name: true,
+                    link: true,
+                    type: true,
+                    isFavorite: true,
+                },
+            },
+            _count: {
+                select: {
+                    bookmarks: true,
+                },
+            },
+        },
+    });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, updatedCollection, "Bookmarks added to collection successfully"));
+});
