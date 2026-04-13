@@ -14,26 +14,34 @@ import {
     resetPassword,
 } from "./auth.controller.js";
 import { verifyAccessToken, verifyRefreshToken } from "../../middleware/auth.middleware.js";
+import { 
+    loginLimiter, 
+    signupLimiter, 
+    otpLimiter, 
+    otpResendLimiter,
+    passwordResetLimiter,
+    writeLimiter 
+} from "../../middleware/rateLimiter.js";
 
 const router = Router();
 
 // =====================
 // Auth Routes
 // =====================
-router.post("/auth/signup", signup);
-router.post("/auth/login", login);
-router.post("/auth/logout", verifyAccessToken, logout);
+router.post("/auth/signup", signupLimiter, signup);
+router.post("/auth/login", loginLimiter, login);
+router.post("/auth/logout", verifyAccessToken, writeLimiter, logout);
 router.get("/auth/me", verifyAccessToken, getMe);
 router.post("/auth/refresh", verifyRefreshToken, refreshToken);
 
 // OTP Routes
-router.post("/auth/verify-otp", verifyOTP);
-router.post("/auth/resend-otp", resendOTP);
+router.post("/auth/verify-otp", otpLimiter, verifyOTP);
+router.post("/auth/resend-otp", otpResendLimiter, resendOTP);
 
 // Password Management
-router.post("/auth/change-password", verifyAccessToken, changePassword);
-router.post("/auth/forgot-password", forgotPassword);
-router.post("/auth/reset-password", resetPassword);
+router.post("/auth/change-password", verifyAccessToken, writeLimiter, changePassword);
+router.post("/auth/forgot-password", passwordResetLimiter, forgotPassword);
+router.post("/auth/reset-password", passwordResetLimiter, resetPassword);
 
 // Google OAuth Routes
 router.get("/auth/oauth/google", googleOAuth);

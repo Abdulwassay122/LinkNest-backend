@@ -2,6 +2,11 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../db/index.js";
+import { 
+    validateCollectionName, 
+    validateDescription,
+    validateId 
+} from "../../utils/validation.js";
 
 // =====================
 // Create Collection Controller
@@ -10,15 +15,16 @@ export const createCollection = asyncHandler(async (req, res) => {
     const { name, description, logo } = req.body;
 
     // Validation
-    if (!name) {
-        throw new ApiError(400, "Collection name is required");
-    }
+    validateCollectionName(name);
+
+    // Validate and sanitize description
+    const sanitizedDescription = validateDescription(description);
 
     // Create collection
     const collection = await prisma.collection.create({
         data: {
-            name,
-            description: description || null,
+            name: name.trim(),
+            description: sanitizedDescription,
             logo: logo || null,
             userId: req.user.id,
         },
@@ -97,9 +103,12 @@ export const getAllCollections = asyncHandler(async (req, res) => {
 export const getCollection = asyncHandler(async (req, res) => {
     const { collectionId } = req.params;
 
+    // Validate collection ID
+    const validatedCollectionId = validateId(collectionId, 'Collection ID');
+
     const collection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
         include: {
@@ -141,10 +150,13 @@ export const updateCollection = asyncHandler(async (req, res) => {
     const { collectionId } = req.params;
     const { name, description, logo } = req.body;
 
+    // Validate collection ID
+    const validatedCollectionId = validateId(collectionId, 'Collection ID');
+
     // Check if collection exists and belongs to user
     const existingCollection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
     });
@@ -153,12 +165,18 @@ export const updateCollection = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Collection not found");
     }
 
+    // Validate fields if provided
+    if (name) validateCollectionName(name);
+
+    // Validate and sanitize description
+    const sanitizedDescription = description !== undefined ? validateDescription(description) : undefined;
+
     // Update collection
     const collection = await prisma.collection.update({
-        where: { id: parseInt(collectionId) },
+        where: { id: validatedCollectionId },
         data: {
-            ...(name && { name }),
-            ...(description !== undefined && { description }),
+            ...(name && { name: name.trim() }),
+            ...(sanitizedDescription !== undefined && { description: sanitizedDescription }),
             ...(logo !== undefined && { logo }),
         },
         include: {
@@ -190,10 +208,13 @@ export const updateCollection = asyncHandler(async (req, res) => {
 export const deleteCollection = asyncHandler(async (req, res) => {
     const { collectionId } = req.params;
 
+    // Validate collection ID
+    const validatedCollectionId = validateId(collectionId, 'Collection ID');
+
     // Check if collection exists and belongs to user
     const existingCollection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
     });
@@ -204,7 +225,7 @@ export const deleteCollection = asyncHandler(async (req, res) => {
 
     // Delete collection (bookmarks will be set to null collectionId due to onDelete: SetNull)
     await prisma.collection.delete({
-        where: { id: parseInt(collectionId) },
+        where: { id: validatedCollectionId },
     });
 
     return res
@@ -218,10 +239,16 @@ export const deleteCollection = asyncHandler(async (req, res) => {
 export const addBookmarkToCollection = asyncHandler(async (req, res) => {
     const { collectionId, bookmarkId } = req.params;
 
+    // Validate collection ID
+    const validatedCollectionId = validateId(collectionId, 'Collection ID');
+
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     // Check if collection exists and belongs to user
     const collection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
     });
@@ -233,7 +260,7 @@ export const addBookmarkToCollection = asyncHandler(async (req, res) => {
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -244,9 +271,9 @@ export const addBookmarkToCollection = asyncHandler(async (req, res) => {
 
     // Update bookmark to add to collection
     const updatedBookmark = await prisma.bookmark.update({
-        where: { id: parseInt(bookmarkId) },
+        where: { id: validatedBookmarkId },
         data: {
-            collectionId: parseInt(collectionId),
+            collectionId: validatedCollectionId,
         },
         include: {
             collection: {
@@ -279,10 +306,16 @@ export const addBookmarkToCollection = asyncHandler(async (req, res) => {
 export const removeBookmarkFromCollection = asyncHandler(async (req, res) => {
     const { collectionId, bookmarkId } = req.params;
 
+    // Validate collection ID
+    const validatedCollectionId = validateId(collectionId, 'Collection ID');
+
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     // Check if collection exists and belongs to user
     const collection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
     });
@@ -294,7 +327,7 @@ export const removeBookmarkFromCollection = asyncHandler(async (req, res) => {
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -304,13 +337,13 @@ export const removeBookmarkFromCollection = asyncHandler(async (req, res) => {
     }
 
     // Check if bookmark belongs to this collection
-    if (bookmark.collectionId !== parseInt(collectionId)) {
+    if (bookmark.collectionId !== validatedCollectionId) {
         throw new ApiError(400, "Bookmark is not in this collection");
     }
 
     // Remove bookmark from collection
     const updatedBookmark = await prisma.bookmark.update({
-        where: { id: parseInt(bookmarkId) },
+        where: { id: validatedBookmarkId },
         data: {
             collectionId: null,
         },
@@ -346,10 +379,13 @@ export const addBookmarksToCollection = asyncHandler(async (req, res) => {
     const { collectionId } = req.params;
     const { bookmarkIds } = req.body;
 
+    // Validate collection ID
+    const validatedCollectionId = validateId(collectionId, 'Collection ID');
+
     // Check if collection exists and belongs to user
     const collection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
     });
@@ -363,32 +399,46 @@ export const addBookmarksToCollection = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Bookmark IDs array is required");
     }
 
+    // Limit number of bookmarks to add at once
+    if (bookmarkIds.length > 50) {
+        throw new ApiError(400, "Cannot add more than 50 bookmarks at once");
+    }
+
+    // Validate all bookmark IDs
+    const validatedBookmarkIds = bookmarkIds.map((id, index) => {
+        try {
+            return validateId(id.toString(), `Bookmark ID at index ${index}`);
+        } catch {
+            throw new ApiError(400, `Invalid bookmark ID at index ${index}`);
+        }
+    });
+
     // Verify all bookmarks belong to the user
     const bookmarks = await prisma.bookmark.findMany({
         where: {
-            id: { in: bookmarkIds },
+            id: { in: validatedBookmarkIds },
             userId: req.user.id,
         },
     });
 
-    if (bookmarks.length !== bookmarkIds.length) {
+    if (bookmarks.length !== validatedBookmarkIds.length) {
         throw new ApiError(404, "One or more bookmarks not found");
     }
 
     // Update all bookmarks to add to collection
     await prisma.bookmark.updateMany({
         where: {
-            id: { in: bookmarkIds },
+            id: { in: validatedBookmarkIds },
         },
         data: {
-            collectionId: parseInt(collectionId),
+            collectionId: validatedCollectionId,
         },
     });
 
     // Return updated collection
     const updatedCollection = await prisma.collection.findFirst({
         where: {
-            id: parseInt(collectionId),
+            id: validatedCollectionId,
             userId: req.user.id,
         },
         include: {

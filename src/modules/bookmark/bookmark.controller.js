@@ -4,6 +4,16 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../db/index.js";
+import { 
+    sanitizeUrl, 
+    validateUrl, 
+    validateName, 
+    validateDescription,
+    validateBookmarkType,
+    validateId,
+    validateTags,
+    sanitizeTagName
+} from "../../utils/validation.js";
 
 // =====================
 // Create Bookmark Controller
@@ -12,21 +22,19 @@ export const createBookmark = asyncHandler(async (req, res) => {
     const { name, description, link, icon, type, collectionId, isFavorite, tags } = req.body;
 
     // Validation
-    if (!name || !link) {
-        throw new ApiError(400, "Name and link are required");
-    }
-
-    // Validate bookmark type if provided
-    const validTypes = ["link", "article", "video", "github", "tool"];
-    if (type && !validTypes.includes(type)) {
-        throw new ApiError(400, `Invalid bookmark type. Must be one of: ${validTypes.join(", ")}`);
-    }
+    validateName(name);
+    validateUrl(link);
+    validateBookmarkType(type);
+    validateTags(tags);
+    
+    const sanitizedLink = sanitizeUrl(link);
 
     // If collectionId is provided, verify it belongs to the user
     if (collectionId) {
+        const validatedCollectionId = validateId(collectionId.toString(), 'Collection ID');
         const collection = await prisma.collection.findFirst({
             where: {
-                id: parseInt(collectionId),
+                id: validatedCollectionId,
                 userId: req.user.id,
             },
         });
@@ -36,19 +44,25 @@ export const createBookmark = asyncHandler(async (req, res) => {
         }
     }
 
+    // Validate and sanitize description
+    const sanitizedDescription = validateDescription(description);
+    
+    // Sanitize tags
+    const sanitizedTags = tags ? tags.map(tag => sanitizeTagName(tag)) : undefined;
+
     // Create bookmark
     const bookmark = await prisma.bookmark.create({
         data: {
-            name,
-            description: description || null,
-            link,
+            name: name.trim(),
+            description: sanitizedDescription,
+            link: sanitizedLink,
             icon: icon || null,
             type: type || "link",
             isFavorite: isFavorite || false,
             userId: req.user.id,
-            collectionId: collectionId ? parseInt(collectionId) : null,
-            tags: tags ? {
-                create: tags.map(tagName => ({
+            collectionId: collectionId ? validateId(collectionId.toString(), 'Collection ID') : null,
+            tags: sanitizedTags && sanitizedTags.length > 0 ? {
+                create: sanitizedTags.map(tagName => ({
                     tag: {
                         connectOrCreate: {
                             where: { name: tagName },
@@ -159,9 +173,12 @@ export const getAllBookmarks = asyncHandler(async (req, res) => {
 export const getBookmark = asyncHandler(async (req, res) => {
     const { bookmarkId } = req.params;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
         include: {
@@ -200,10 +217,13 @@ export const updateBookmark = asyncHandler(async (req, res) => {
     const { bookmarkId } = req.params;
     const { name, description, link, icon, type, collectionId, isFavorite, tags } = req.body;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     // Check if bookmark exists and belongs to user
     const existingBookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -212,51 +232,67 @@ export const updateBookmark = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Bookmark not found");
     }
 
-    // Validate bookmark type if provided
-    const validTypes = ["link", "article", "video", "github", "tool"];
-    if (type && !validTypes.includes(type)) {
-        throw new ApiError(400, `Invalid bookmark type. Must be one of: ${validTypes.join(", ")}`);
-    }
+    // Validate fields if provided
+    if (name) validateName(name);
+    if (link) validateUrl(link);
+    validateBookmarkType(type);
+    validateTags(tags);
 
     // If collectionId is provided, verify it belongs to the user
-    if (collectionId) {
-        const collection = await prisma.collection.findFirst({
-            where: {
-                id: parseInt(collectionId),
-                userId: req.user.id,
-            },
-        });
+    if (collectionId !== undefined) {
+        if (collectionId === null) {
+            // Removing from collection is valid
+        } else {
+            const validatedCollectionId = validateId(collectionId.toString(), 'Collection ID');
+            const collection = await prisma.collection.findFirst({
+                where: {
+                    id: validatedCollectionId,
+                    userId: req.user.id,
+                },
+            });
 
-        if (!collection) {
-            throw new ApiError(404, "Collection not found or you don't have access");
+            if (!collection) {
+                throw new ApiError(404, "Collection not found or you don't have access");
+            }
         }
     }
 
+    // Validate and sanitize description
+    const sanitizedDescription = description !== undefined ? validateDescription(description) : undefined;
+    
+    // Sanitize tags if provided
+    const sanitizedTags = tags ? tags.map(tag => sanitizeTagName(tag)) : undefined;
+
+    // Build update data object
+    const updateData = {
+        ...(name && { name: name.trim() }),
+        ...(sanitizedDescription !== undefined && { description: sanitizedDescription }),
+        ...(link && { link: sanitizeUrl(link) }),
+        ...(icon !== undefined && { icon }),
+        ...(type && { type }),
+        ...(collectionId !== undefined && { 
+            collectionId: collectionId === null ? null : validateId(collectionId.toString(), 'Collection ID') 
+        }),
+        ...(isFavorite !== undefined && { isFavorite }),
+        ...(sanitizedTags && {
+            tags: {
+                deleteMany: {},
+                create: sanitizedTags.map(tagName => ({
+                    tag: {
+                        connectOrCreate: {
+                            where: { name: tagName },
+                            create: { name: tagName },
+                        },
+                    },
+                })),
+            },
+        }),
+    };
+
     // Update bookmark
     const bookmark = await prisma.bookmark.update({
-        where: { id: parseInt(bookmarkId) },
-        data: {
-            ...(name && { name }),
-            ...(description !== undefined && { description }),
-            ...(link && { link }),
-            ...(icon !== undefined && { icon }),
-            ...(type && { type }),
-            ...(collectionId !== undefined && { collectionId: collectionId === null ? null : parseInt(collectionId) }),
-            ...(isFavorite !== undefined && { isFavorite }),
-            ...(tags && {
-                tags: {
-                    deleteMany: {},
-                    create: tags.map(tagName => ({
-                        tag: {
-                            connectOrCreate: {
-                                where: { name: tagName },
-                                create: { name: tagName },
-                            },
-                        },
-                    })),
-                },
-            }),
-        },
+        where: { id: validatedBookmarkId },
+        data: updateData,
         include: {
             collection: {
                 select: {
@@ -288,10 +324,13 @@ export const updateBookmark = asyncHandler(async (req, res) => {
 export const toggleFavorite = asyncHandler(async (req, res) => {
     const { bookmarkId } = req.params;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -302,7 +341,7 @@ export const toggleFavorite = asyncHandler(async (req, res) => {
 
     // Toggle favorite status
     const updatedBookmark = await prisma.bookmark.update({
-        where: { id: parseInt(bookmarkId) },
+        where: { id: validatedBookmarkId },
         data: {
             isFavorite: !bookmark.isFavorite,
         },
@@ -337,10 +376,13 @@ export const toggleFavorite = asyncHandler(async (req, res) => {
 export const deleteBookmark = asyncHandler(async (req, res) => {
     const { bookmarkId } = req.params;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     // Check if bookmark exists and belongs to user
     const existingBookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -352,13 +394,13 @@ export const deleteBookmark = asyncHandler(async (req, res) => {
     // Delete related BookmarkTag records first to avoid foreign key constraint
     await prisma.bookmarkTag.deleteMany({
         where: {
-            bookmarkId: parseInt(bookmarkId),
+            bookmarkId: validatedBookmarkId,
         },
     });
 
     // Delete bookmark
     await prisma.bookmark.delete({
-        where: { id: parseInt(bookmarkId) },
+        where: { id: validatedBookmarkId },
     });
 
     return res
@@ -410,10 +452,13 @@ export const addTags = asyncHandler(async (req, res) => {
     const { bookmarkId } = req.params;
     const { tags } = req.body;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -427,12 +472,16 @@ export const addTags = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Tags array is required");
     }
 
+    // Validate and sanitize tags
+    validateTags(tags);
+    const sanitizedTags = tags.map(tag => sanitizeTagName(tag));
+
     // Add tags to bookmark
     const updatedBookmark = await prisma.bookmark.update({
-        where: { id: parseInt(bookmarkId) },
+        where: { id: validatedBookmarkId },
         data: {
             tags: {
-                create: tags.map(tagName => ({
+                create: sanitizedTags.map(tagName => ({
                     tag: {
                         connectOrCreate: {
                             where: { name: tagName.toLowerCase() },
@@ -473,10 +522,16 @@ export const addTags = asyncHandler(async (req, res) => {
 export const removeTag = asyncHandler(async (req, res) => {
     const { bookmarkId, tagId } = req.params;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
+    // Validate tag ID
+    const validatedTagId = validateId(tagId, 'Tag ID');
+
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -487,7 +542,7 @@ export const removeTag = asyncHandler(async (req, res) => {
 
     // Check if tag exists
     const tag = await prisma.tag.findUnique({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
     });
 
     if (!tag) {
@@ -498,8 +553,8 @@ export const removeTag = asyncHandler(async (req, res) => {
     const existingAssociation = await prisma.bookmarkTag.findUnique({
         where: {
             bookmarkId_tagId: {
-                bookmarkId: parseInt(bookmarkId),
-                tagId: parseInt(tagId),
+                bookmarkId: validatedBookmarkId,
+                tagId: validatedTagId,
             },
         },
     });
@@ -512,8 +567,8 @@ export const removeTag = asyncHandler(async (req, res) => {
     await prisma.bookmarkTag.delete({
         where: {
             bookmarkId_tagId: {
-                bookmarkId: parseInt(bookmarkId),
-                tagId: parseInt(tagId),
+                bookmarkId: validatedBookmarkId,
+                tagId: validatedTagId,
             },
         },
     });
@@ -533,15 +588,46 @@ export const getLinkPreview = asyncHandler(async (req, res) => {
         throw new ApiError(400, "URL is required");
     }
 
+    // Validate and sanitize URL to prevent SSRF attacks
+    const sanitizedUrl = sanitizeUrl(url);
+    
+    if (!sanitizedUrl) {
+        throw new ApiError(400, "Invalid URL. Only HTTP and HTTPS URLs are allowed");
+    }
+
     try {
-        const response = await axios.get(url, {
-            headers: { 
+        const response = await axios.get(sanitizedUrl, {
+            headers: {
                 'User-Agent': 'LinkNest/1.0 Bookmark Manager',
                 'Accept': 'text/html,application/xhtml+xml',
             },
             timeout: 8000,
             maxRedirects: 5,
+            // Prevent following redirects to private IPs
+            validateStatus: (status) => status >= 200 && status < 400,
         });
+
+        // Check if redirect led to a private IP
+        if (response.request?.res?.socket) {
+            const remoteAddress = response.request.res.socket.remoteAddress;
+            if (remoteAddress) {
+                const privateIpPatterns = [
+                    /^10\./,
+                    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+                    /^192\.168\./,
+                    /^169\.254\./,
+                    /^0\./,
+                    /^127\./,
+                    /^::1$/,
+                    /^fc00:/,
+                    /^fe80:/,
+                ];
+                
+                if (privateIpPatterns.some(pattern => pattern.test(remoteAddress))) {
+                    throw new ApiError(400, "Redirect to private network not allowed");
+                }
+            }
+        }
 
         const $ = cheerio.load(response.data);
 

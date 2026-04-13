@@ -1,10 +1,18 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import passport from "./config/passport.config.js";
 import { ApiError } from "./utils/ApiError.js";
+import { generalLimiter } from "./middleware/rateLimiter.js";
 
 const app = express();
+
+// Security Headers
+app.use(helmet({
+    contentSecurityPolicy: false, // Configure based on your needs
+    crossOriginEmbedderPolicy: false,
+}));
 
 // CORS Configuration - Allow frontend to send credentials
 app.use(
@@ -21,6 +29,9 @@ app.use(express.json({ limit: "16kb" }));
 app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
+
+// Apply general rate limiting to all API routes
+app.use("/api/v1", generalLimiter);
 
 // Passport Initialization
 app.use(passport.initialize());

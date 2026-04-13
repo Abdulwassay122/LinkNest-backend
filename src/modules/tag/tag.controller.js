@@ -2,6 +2,11 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../db/index.js";
+import { 
+    validateTagName,
+    validateId,
+    sanitizeTagName
+} from "../../utils/validation.js";
 
 // =====================
 // Create Tag Controller
@@ -10,13 +15,13 @@ export const createTag = asyncHandler(async (req, res) => {
     const { name } = req.body;
 
     // Validation
-    if (!name) {
-        throw new ApiError(400, "Tag name is required");
-    }
+    validateTagName(name);
+    
+    const sanitizedName = sanitizeTagName(name);
 
     // Check if tag already exists
     const existingTag = await prisma.tag.findUnique({
-        where: { name: name.toLowerCase() },
+        where: { name: sanitizedName },
     });
 
     if (existingTag) {
@@ -26,7 +31,7 @@ export const createTag = asyncHandler(async (req, res) => {
     // Create tag
     const tag = await prisma.tag.create({
         data: {
-            name: name.toLowerCase(),
+            name: sanitizedName,
         },
         include: {
             bookmarks: {
@@ -114,8 +119,11 @@ export const getAllTags = asyncHandler(async (req, res) => {
 export const getTag = asyncHandler(async (req, res) => {
     const { tagId } = req.params;
 
+    // Validate tag ID
+    const validatedTagId = validateId(tagId, 'Tag ID');
+
     const tag = await prisma.tag.findUnique({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
         include: {
             bookmarks: {
                 select: {
@@ -168,9 +176,12 @@ export const updateTag = asyncHandler(async (req, res) => {
     const { tagId } = req.params;
     const { name } = req.body;
 
+    // Validate tag ID
+    const validatedTagId = validateId(tagId, 'Tag ID');
+
     // Check if tag exists
     const existingTag = await prisma.tag.findUnique({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
     });
 
     if (!existingTag) {
@@ -178,22 +189,53 @@ export const updateTag = asyncHandler(async (req, res) => {
     }
 
     // Check if new name already exists
-    if (name && name.toLowerCase() !== existingTag.name) {
-        const duplicateTag = await prisma.tag.findUnique({
-            where: { name: name.toLowerCase() },
-        });
+    if (name) {
+        validateTagName(name);
+        const sanitizedName = sanitizeTagName(name);
+        
+        if (sanitizedName !== existingTag.name) {
+            const duplicateTag = await prisma.tag.findUnique({
+                where: { name: sanitizedName },
+            });
 
-        if (duplicateTag) {
-            throw new ApiError(409, "Tag with this name already exists");
+            if (duplicateTag) {
+                throw new ApiError(409, "Tag with this name already exists");
+            }
+            
+            // Update tag with sanitized name
+            const tag = await prisma.tag.update({
+                where: { id: validatedTagId },
+                data: { name: sanitizedName },
+                include: {
+                    bookmarks: {
+                        select: {
+                            bookmark: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    link: true,
+                                    type: true,
+                                },
+                            },
+                        },
+                    },
+                    _count: {
+                        select: {
+                            bookmarks: true,
+                        },
+                    },
+                },
+            });
+            
+            return res
+                .status(200)
+                .json(new ApiResponse(200, tag, "Tag updated successfully"));
         }
     }
-
-    // Update tag
-    const tag = await prisma.tag.update({
-        where: { id: parseInt(tagId) },
-        data: {
-            ...(name && { name: name.toLowerCase() }),
-        },
+    
+    // If no name or name unchanged, return existing tag
+    const tag = await prisma.tag.findUnique({
+        where: { id: validatedTagId },
         include: {
             bookmarks: {
                 select: {
@@ -226,9 +268,12 @@ export const updateTag = asyncHandler(async (req, res) => {
 export const deleteTag = asyncHandler(async (req, res) => {
     const { tagId } = req.params;
 
+    // Validate tag ID
+    const validatedTagId = validateId(tagId, 'Tag ID');
+
     // Check if tag exists
     const existingTag = await prisma.tag.findUnique({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
     });
 
     if (!existingTag) {
@@ -237,7 +282,7 @@ export const deleteTag = asyncHandler(async (req, res) => {
 
     // Delete tag (bookmarkTag relations will be deleted due to cascade)
     await prisma.tag.delete({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
     });
 
     return res
@@ -304,10 +349,16 @@ export const getTagByName = asyncHandler(async (req, res) => {
 export const addTagToBookmark = asyncHandler(async (req, res) => {
     const { bookmarkId, tagId } = req.params;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
+    // Validate tag ID
+    const validatedTagId = validateId(tagId, 'Tag ID');
+
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -318,7 +369,7 @@ export const addTagToBookmark = asyncHandler(async (req, res) => {
 
     // Check if tag exists
     const tag = await prisma.tag.findUnique({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
     });
 
     if (!tag) {
@@ -329,8 +380,8 @@ export const addTagToBookmark = asyncHandler(async (req, res) => {
     const existingAssociation = await prisma.bookmarkTag.findUnique({
         where: {
             bookmarkId_tagId: {
-                bookmarkId: parseInt(bookmarkId),
-                tagId: parseInt(tagId),
+                bookmarkId: validatedBookmarkId,
+                tagId: validatedTagId,
             },
         },
     });
@@ -342,8 +393,8 @@ export const addTagToBookmark = asyncHandler(async (req, res) => {
     // Create bookmarkTag association
     const bookmarkTag = await prisma.bookmarkTag.create({
         data: {
-            bookmarkId: parseInt(bookmarkId),
-            tagId: parseInt(tagId),
+            bookmarkId: validatedBookmarkId,
+            tagId: validatedTagId,
         },
         include: {
             tag: {
@@ -366,10 +417,16 @@ export const addTagToBookmark = asyncHandler(async (req, res) => {
 export const removeTagFromBookmark = asyncHandler(async (req, res) => {
     const { bookmarkId, tagId } = req.params;
 
+    // Validate bookmark ID
+    const validatedBookmarkId = validateId(bookmarkId, 'Bookmark ID');
+
+    // Validate tag ID
+    const validatedTagId = validateId(tagId, 'Tag ID');
+
     // Check if bookmark exists and belongs to user
     const bookmark = await prisma.bookmark.findFirst({
         where: {
-            id: parseInt(bookmarkId),
+            id: validatedBookmarkId,
             userId: req.user.id,
         },
     });
@@ -380,7 +437,7 @@ export const removeTagFromBookmark = asyncHandler(async (req, res) => {
 
     // Check if tag exists
     const tag = await prisma.tag.findUnique({
-        where: { id: parseInt(tagId) },
+        where: { id: validatedTagId },
     });
 
     if (!tag) {
@@ -391,8 +448,8 @@ export const removeTagFromBookmark = asyncHandler(async (req, res) => {
     await prisma.bookmarkTag.delete({
         where: {
             bookmarkId_tagId: {
-                bookmarkId: parseInt(bookmarkId),
-                tagId: parseInt(tagId),
+                bookmarkId: validatedBookmarkId,
+                tagId: validatedTagId,
             },
         },
     });

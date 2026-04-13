@@ -7,6 +7,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prisma } from "../../db/index.js";
 import { sendOTPEmail, sendPasswordResetEmail } from "../../config/email.config.js";
 import { generateOTP, hashToken, getOTPExpiryDate, getResetTokenExpiryDate } from "../../utils/otp.utils.js";
+import { validateEmail, validatePassword, sanitizeEmail } from "../../utils/validation.js";
 
 // Token Generation Function
 export const createTokens = async (user) => {
@@ -74,23 +75,24 @@ export const signup = asyncHandler(async (req, res) => {
     const { email, password, name } = req.body;
 
     // Validation
-    if (!email || !password) {
-        throw new ApiError(400, "Email and password are required");
-    }
+    validateEmail(email);
+    validatePassword(password);
+    
+    const sanitizedEmail = sanitizeEmail(email);
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
-        where: { email },
+        where: { email: sanitizedEmail },
     });
 
     if (existingUser) {
         if (existingUser.isEmailVerified) {
             throw new ApiError(409, "User with this email already exists");
         } else {
-            // User exists but not verified - resend OTP
+            // User exists but not verified - resend OTP silently
             const otp = generateOTP();
             const otpExpiresAt = getOTPExpiryDate();
-            
+
             await prisma.user.update({
                 where: { id: existingUser.id },
                 data: {
@@ -98,12 +100,17 @@ export const signup = asyncHandler(async (req, res) => {
                     otpExpiresAt,
                 },
             });
-            
-            await sendOTPEmail(email, otp);
-            
+
+            // Send OTP silently - don't reveal if user exists
+            try {
+                await sendOTPEmail(sanitizedEmail, otp);
+            } catch (error) {
+                console.error("Failed to send OTP email:", error);
+            }
+
             return res.status(200).json(new ApiResponse(
                 200,
-                { email: existingUser.email, message: "OTP resent successfully" },
+                { email: sanitizedEmail, message: "OTP sent successfully" },
                 "Please verify your email"
             ));
         }
@@ -119,7 +126,7 @@ export const signup = asyncHandler(async (req, res) => {
     // Create user (not verified yet)
     const user = await prisma.user.create({
         data: {
-            email,
+            email: sanitizedEmail,
             password: hashedPassword,
             name: name || null,
             provider: "local",
@@ -131,7 +138,7 @@ export const signup = asyncHandler(async (req, res) => {
 
     // Send OTP email
     try {
-        await sendOTPEmail(email, otp);
+        await sendOTPEmail(sanitizedEmail, otp);
     } catch (error) {
         console.error("Failed to send OTP email:", error);
         // Don't fail signup, but log the error
@@ -163,26 +170,32 @@ export const login = asyncHandler(async (req, res) => {
 
     // Find user
     const user = await prisma.user.findUnique({
-        where: { email },
+        where: { email: email.toLowerCase().trim() },
     });
 
-    if (!user) {
+    // Generic error message to prevent email enumeration
+    const genericError = () => {
         throw new ApiError(401, "Invalid email or password");
+    };
+
+    if (!user) {
+        genericError();
     }
 
     // Check if user has a password (might be OAuth user)
     if (!user.password) {
-        throw new ApiError(401, "Invalid email or password");
+        // Don't reveal that the user exists with OAuth
+        genericError();
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-        throw new ApiError(401, "Invalid email or password");
+        genericError();
     }
 
-    // Check if email is verified - return flag instead of throwing error
+    // Check if email is verified - send OTP silently if not
     if (!user.isEmailVerified) {
         // Generate OTP for verification
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -196,23 +209,23 @@ export const login = asyncHandler(async (req, res) => {
             },
         });
 
-        // Send OTP email
+        // Send OTP email silently (don't fail the request)
         try {
             await sendOTPEmail(email, otp);
         } catch (error) {
             console.error("Failed to send OTP email:", error);
+            // Don't reveal whether email was sent or not
         }
 
-        // Return user data with unverified flag
+        // Return generic response - don't reveal verification status
         return res
             .status(200)
             .json(new ApiResponse(200, {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                isEmailVerified: false,
                 requiresVerification: true,
-            }, "Email verification required. A new OTP has been sent to your email."));
+            }, "Email verification required. Please check your email for the verification code."));
     }
 
     // Generate tokens for verified users
@@ -473,6 +486,9 @@ export const changePassword = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Current password and new password are required");
     }
 
+    // Validate new password strength
+    validatePassword(newPassword);
+
     // Find user
     const user = await prisma.user.findUnique({
         where: { id: req.user.id },
@@ -494,9 +510,10 @@ export const changePassword = asyncHandler(async (req, res) => {
         throw new ApiError(401, "Current password is incorrect");
     }
 
-    // Validate new password
-    if (newPassword.length < 8) {
-        throw new ApiError(400, "New password must be at least 8 characters");
+    // Check if new password is same as current password
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) {
+        throw new ApiError(400, "New password must be different from current password");
     }
 
     // Hash new password
@@ -586,9 +603,8 @@ export const resetPassword = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Reset token and new password are required");
     }
 
-    if (newPassword.length < 8) {
-        throw new ApiError(400, "Password must be at least 8 characters");
-    }
+    // Validate new password strength
+    validatePassword(newPassword);
 
     // Hash the token to compare with stored hash
     const hashedToken = hashToken(token);
